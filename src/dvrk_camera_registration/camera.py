@@ -58,7 +58,11 @@ class Camera:
         return self.camera_frame
 
     def _info_callback(self, info_msg):
-        projection_matrix = np.array(info_msg.P).reshape((3, 4))
+        # ROS1 vs ROS2
+        if hasattr(info_msg, 'P'):
+            projection_matrix = np.array(info_msg.P).reshape((3, 4))
+        else:
+            projection_matrix = np.array(info_msg.p).reshape((3, 4))
         self.camera_matrix = projection_matrix[0:3, 0:3]
         self.camera_frame = info_msg.header.frame_id
 
