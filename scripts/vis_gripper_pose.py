@@ -3,7 +3,7 @@
 # Author: Juan Antonio Barragan
 # Date: 2024-04-19
 
-# (C) Copyright 2022-2024 Johns Hopkins University (JHU), All Rights Reserved.
+# (C) Copyright 2022-2025 Johns Hopkins University (JHU), All Rights Reserved.
 
 # --- begin cisst license - do not edit ---
 
@@ -20,13 +20,13 @@ import pathlib
 import json
 from dataclasses import dataclass, field
 import numpy
+from scipy.spatial.transform import Rotation
 
 import cv_bridge
 import cv2
 
 import crtk
 import sensor_msgs.msg
-import tf_conversions.posemath
 
 import dvrk_camera_registration
 
@@ -56,7 +56,11 @@ class ImageSubscriber:
             print(e)
 
     def _info_callback(self, info_msg):
-        projection_matrix = numpy.array(info_msg.P).reshape((3, 4))
+        # ROS1 vs ROS2
+        if hasattr(info_msg, 'P'):
+            projection_matrix = numpy.array(info_msg.P).reshape((3, 4))
+        else:
+            projection_matrix = numpy.array(info_msg.p).reshape((3, 4))
         self.camera_matrix = projection_matrix[0:3, 0:3]
         self.camera_frame = info_msg.header.frame_id
 
@@ -165,8 +169,27 @@ def run_pose_visualizer(
     while not ral.is_shutdown():
 
         img = img_subscriber.current_frame
-        local_measured_cp = tf_conversions.posemath.toMatrix(arm_handle.local.measured_cp())
-
+        # display control point
+        m_cp, _ = arm_handle.local.measured_cp()
+        rotation_quaternion = Rotation.from_quat(m_cp.M.GetQuaternion())
+        rotation_matrix = numpy.float64(rotation_quaternion.as_matrix())
+        local_measured_cp = numpy.eye(4)
+        local_measured_cp[0:3, 0:3] = rotation_matrix
+        local_measured_cp[0, 3] = m_cp.p[0]
+        local_measured_cp[1, 3] = m_cp.p[1]
+        local_measured_cp[2, 3] = m_cp.p[2]
+        img = pose_annotator.draw_pose_on_img(img, local_measured_cp)
+        # display end of shaft
+        m_jp, _ = arm_handle.measured_jp()
+        jp = m_jp[0:4]
+        m_cp = arm_handle.local.forward_kinematics(jp)
+        rotation_quaternion = Rotation.from_quat(m_cp.M.GetQuaternion())
+        rotation_matrix = numpy.float64(rotation_quaternion.as_matrix())
+        local_measured_cp = numpy.eye(4)
+        local_measured_cp[0:3, 0:3] = rotation_matrix
+        local_measured_cp[0, 3] = m_cp.p[0]
+        local_measured_cp[1, 3] = m_cp.p[1]
+        local_measured_cp[2, 3] = m_cp.p[2]
         img = pose_annotator.draw_pose_on_img(img, local_measured_cp)
         cv2.imshow(window_name, img)
         k = cv2.waitKey(1)
@@ -215,11 +238,15 @@ def main():
     )
     args = parser.parse_args(argv)
 
-    camera_image_topic = args.camera_namespace + "/image_rect_color"
-    camera_info_topic = args.camera_namespace + "/camera_info"
-
-    ral = crtk.ral("vis_gripper_pose")
+    ral = crtk.ral('vis_gripper_pose')
+    if ral.ros_version() == 1:
+        camera_image_topic = args.camera_namespace + '/image_rect_color'
+    else:
+        camera_image_topic = args.camera_namespace + '/image_rect'
+    camera_info_topic = args.camera_namespace + '/camera_info'
+  
     arm_handle = dvrk_camera_registration.ARM(ral, arm_name=args.psm_name, expected_interval=0.1)
+    ral.spin()
     ral.check_connections()
     cv2.setNumThreads(2)
     cam_T_robot_base = load_hand_eye_calibration(args.hand_eye_json)

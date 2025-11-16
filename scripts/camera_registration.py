@@ -3,7 +3,7 @@
 # Author: Brendan Burkhart
 # Date: 2022-06-16
 
-# (C) Copyright 2022-2024 Johns Hopkins University (JHU), All Rights Reserved.
+# (C) Copyright 2022-2025 Johns Hopkins University (JHU), All Rights Reserved.
 
 # --- begin cisst license - do not edit ---
 
@@ -46,9 +46,6 @@ class CameraRegistrationApplication:
             self.ecm = ARM(ral, arm_name=ecm_name, expected_interval=expected_interval)
         else:
             self.ecm = None
-        ral.check_connections()
-
-        print('Connections with dVRK checked')
 
     def setup(self):
         self.messages.info('Enabling {}...'.format(self.psm.name))
@@ -79,7 +76,7 @@ class CameraRegistrationApplication:
         while not self.done:
             if self.enter:
                 self.enter = False
-                current_pose = self.psm.measured_jp()
+                current_pose, _ = self.psm.measured_jp()
                 poses.append(current_pose)
                 self.messages.info(f'Total poses collected: {len(poses)}')
 
@@ -101,7 +98,7 @@ class CameraRegistrationApplication:
         poses = []
         self.enter = False
         while self.ok and not self.enter:
-            pose = self.psm.measured_jp()
+            pose, _ = self.psm.measured_jp()
             new = numpy.array([pose[0], pose[1], pose[2]])
             # euclidean distance based on 3 joints if there is already one pose collected
             if len(poses) == 0 or distance(new,
@@ -130,7 +127,7 @@ class CameraRegistrationApplication:
             self.enter = False
 
             while self.ok and not self.enter:
-                pose = self.psm.measured_jp()
+                pose, _ = self.psm.measured_jp()
                 position = numpy.array([pose[0], pose[1], pose[2]])
 
                 # make list sparser by ensuring >2mm separation
@@ -176,7 +173,8 @@ class CameraRegistrationApplication:
             if not self.enter:
                 continue
 
-            jp = numpy.copy(self.psm.measured_jp())
+            m_jp, _ = self.psm.measured_jp()
+            jp = numpy.copy(m_jp)
             visible = self.tracker.is_target_visible(timeout=1)
             in_rom = convex_hull.in_hull(safe_range, jp)
 
@@ -222,7 +220,8 @@ class CameraRegistrationApplication:
             target_poses.append(target_pose)
             self.tracker.display_point(target_poses[-1][1], (255, 255, 0))
 
-            pose = self.psm.local.measured_cp().Inverse()
+            local_m_cp, _ = self.psm.local.measured_cp()
+            pose = local_m_cp.Inverse()
             rotation_quaternion = Rotation.from_quat(pose.M.GetQuaternion())
             rotation = numpy.float64(rotation_quaternion.as_matrix())
             translation = numpy.array([pose.p[0], pose.p[1], pose.p[2]], dtype=numpy.float64)
@@ -298,7 +297,8 @@ class CameraRegistrationApplication:
 
             target_poses.append(target_pose)
 
-            pose = self.psm.local.measured_cp().Inverse()
+            local_m_cp, _ = self.psm.local.measured_cp()
+            pose = local_m_cp.Inverse()
             rotation_quaternion = Rotation.from_quat(pose.M.GetQuaternion())
             rotation = numpy.float64(rotation_quaternion.as_matrix())
             translation = numpy.array([pose.p[0], pose.p[1], pose.p[2]], dtype=numpy.float64)
@@ -432,7 +432,7 @@ class CameraRegistrationApplication:
             to_dvrk[1,1] = -to_dvrk[1,1]
             transform = to_dvrk @ transform
             if self.ecm:
-                ecm_cp = self.ecm.local.measured_cp()
+                ecm_cp, _ = self.ecm.local.measured_cp()
                 ecm_transform = numpy.eye(4)
                 for i in range(0, 3):
                     ecm_transform[i, 3] = ecm_cp.p[i]
@@ -494,6 +494,10 @@ class CameraRegistrationApplication:
         )
 
     def run(self):
+        print('Checking topics')
+        self.ral.check_connections()
+        print('Connections with dVRK checked')
+
         try:
             cv2.setNumThreads(2)
             self.ok = True
@@ -510,8 +514,11 @@ class CameraRegistrationApplication:
             self.messages.info('Setup finished')
 
             if self.collection_mode != 'replay':
+                self.messages.info('Waiting for data from PSM')
+                time.sleep(2.0)
+
                 self.messages.info('Moving to roll center\n')
-                measured_jp = self.psm.measured_jp()
+                measured_jp, _ = self.psm.measured_jp()
                 measured_jp[3] = 0.0
                 self.psm.move_jp(measured_jp).wait()
                 self.messages.info('Loosen and rotate the aruco along the instrument shaft so it faces the camera\nPress "Enter" when done\n')
@@ -579,7 +586,6 @@ class CameraRegistrationApplication:
 
         finally:
             self.tracker.stop()
-            # self.psm.unregister()
 
 
 def main():
@@ -644,10 +650,14 @@ def main():
     if args.collection_mode == 'replay' and  args.replay_file is None:
         sys.exit('The replay file has not been specified')
 
-    camera_image_topic = args.camera_namespace + '/image_rect_color'
+    ral = crtk.ral('dvrk_camera_calibration')
+
+    if ral.ros_version() == 1:
+        camera_image_topic = args.camera_namespace + '/image_rect_color'
+    else:
+        camera_image_topic = args.camera_namespace + '/image_rect'
     camera_info_topic = args.camera_namespace + '/camera_info'
 
-    ral = crtk.ral('dvrk_camera_calibration')
     camera = Camera(ral, camera_info_topic, camera_image_topic)
     application = CameraRegistrationApplication(
         ral,
@@ -660,6 +670,7 @@ def main():
         camera = camera,
         replay_file = args.replay_file
     )
+    ral.spin()
     application.run()
 
 
