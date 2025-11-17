@@ -135,7 +135,7 @@ class ArUcoTarget:
 
     def _detect(self, image, parameters):
         corners, ids, _ = cv2.aruco.detectMarkers(
-            image, self.aruco_dict, parameters=parameters
+            image, self.aruco_dict, #parameters=parameters
         )
 
         ids = [x[0] for x in ids] if ids is not None else []
@@ -180,11 +180,11 @@ class VisionTracker:
 
     def __init__(
         self,
-        target_type,
-        message_manager,
+        target_type: ArUcoTarget,
+        message_manager: MessageManager,
         camera: Camera,
-        parameters=Parameters(),
-        window_title="Vision tracking",
+        parameters: Parameters = Parameters(),
+        window_title: str = " Vision tracking ",
     ):
         self.target_type = target_type
         self.message_manager = message_manager
@@ -394,3 +394,35 @@ class VisionTracker:
                 return True
 
         return False
+
+def test_vision_tracking():
+    import crtk
+
+    camera_namespace = "/davinci_endoscope/left"
+    marker_size = 0.0147
+    camera_image_topic = camera_namespace + "/image_rect_color"
+    camera_info_topic = camera_namespace + "/camera_info"
+
+    ral = crtk.ral("dvrk_camera_calibration")
+    camera = Camera(ral, camera_info_topic, camera_image_topic)
+
+    target_type = ArUcoTarget(
+        marker_size, cv2.aruco.DICT_4X4_50, [0]
+    )
+    parameters = VisionTracker.Parameters(4)
+    messages = MessageManager()
+    tracker = VisionTracker(
+        target_type, messages, camera, parameters
+    )
+
+    on_enter = lambda : print("Enter")
+    def on_quit():
+        tracker.should_stop = True
+
+
+    tracker.start(on_enter, on_quit)
+
+
+if __name__ == "__main__":
+
+    test_vision_tracking()
