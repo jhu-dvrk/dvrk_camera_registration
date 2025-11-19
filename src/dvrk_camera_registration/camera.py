@@ -101,7 +101,6 @@ class Camera:
 
         return ok, reprojection_error, rotation, translation
 
-    # TODO
     def calibrate_pose(self, robot_poses, target_poses):
         robot_poses_r = np.array([p[0] for p in robot_poses], dtype=np.float64)
         robot_poses_t = np.array([p[1] for p in robot_poses], dtype=np.float64)

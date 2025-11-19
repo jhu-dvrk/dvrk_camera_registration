@@ -17,7 +17,7 @@ import numpy as np
 import crtk
 import geometry_msgs.msg
 
-class ARM:
+class Arm:
     class Local:
         def __init__(self, ral, expected_interval, operating_state_instance):
             self.crtk_utils = crtk.utils(self, ral, expected_interval, operating_state_instance)
@@ -34,7 +34,7 @@ class ARM:
         self.crtk_utils.add_move_jp()
 
         self.namespace = ros_namespace
-        self.local = ARM.Local(self.ral.create_child("local"), expected_interval, operating_state_instance=self)
+        self.local = Arm.Local(self.ral.create_child("local"), expected_interval, operating_state_instance=self)
 
         base_frame_topic = "/{}/set_base_frame".format(self.namespace)
         self._set_base_frame_pub = self.ral.publisher(
@@ -78,14 +78,3 @@ class ARM:
 
         pose[2] = self.cartesian_insertion_minimum
         return self.move_jp(pose)
-
-
-if __name__ == "__main__":
-    ral = crtk.ral("dvrk_arm_test")
-
-    psm2 = ARM(ral, "PSM2", ros_namespace="", expected_interval=0.01)
-    ral.check_connections()
-
-    pose1 = np.array([0.0, -0.0, 0.132, -0.0, -0.0, 0.0])
-    psm2.move_jp(pose1)
-    print(f"measured_jp {psm2.measured_jp()}")

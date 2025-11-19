@@ -1,7 +1,7 @@
 # Author: Brendan Burkhart
 # Date: 2022-06-21
 
-# (C) Copyright 2022-2024 Johns Hopkins University (JHU), All Rights Reserved.
+# (C) Copyright 2022-2025 Johns Hopkins University (JHU), All Rights Reserved.
 
 # --- begin cisst license - do not edit ---
 
@@ -17,92 +17,29 @@ import numpy as np
 import threading
 import queue
 import scipy
-from dvrk_camera_registration import Camera
+from dvrk_camera_registration import Camera, MessageManager
 import time
 from enum import Enum
 import collections
 from scipy.interpolate import interp1d
 
+class Target:
+    def find(self, image: cv2.Mat):
+        raise NotImplementedError()
 
-class MessageManager:
-    class Level(Enum):
-        INFO = 0
-        WARNING = 1
-        ERROR = 2
+    def pose(self, detection):
+        raise NotImplementedError()
 
-    def __init__(self, buffer_size=100, font_size=0.5):
-        self.messages = collections.deque(maxlen=buffer_size)
-        self.messages_lock = threading.Lock()
 
-        self.padding = 15
-        self.font_size = font_size
-        self.font = cv2.FONT_HERSHEY_DUPLEX
+class ChArUcoTarget(Target):
+    def __init__(self):
+        pass
 
-        self.current_progress = 0
-        self.in_progress = False
+    def find(self, image):
+        pass
 
-    def _add(self, level, message):
-        print(message)
-
-        messages = message.split("\n")
-
-        with self.messages_lock:
-            self.in_progress = False
-            for message in messages:
-                self.messages.appendleft((level, message))
-
-    def info(self, message):
-        self._add(MessageManager.Level.INFO, message)
-
-    def warn(self, message):
-        self._add(MessageManager.Level.WARNING, message)
-
-    def error(self, message):
-        self._add(MessageManager.Level.ERROR, message)
-
-    def line_break(self):
-        self._add(MessageManager.Level.INFO, "")
-
-    def progress(self, progress):
-        self.current_progress = progress
-        with self.messages_lock:
-            if self.in_progress:
-                self.messages.popleft()
-
-        percent = int(100 * self.current_progress)
-
-        with self.messages_lock:
-            self.messages.appendleft(
-                (MessageManager.Level.INFO, "Progress: {}%".format(percent))
-            )
-            self.in_progress = self.current_progress != 1.0
-
-    def _message_color(self, level):
-        if level == MessageManager.Level.INFO:
-            return (255, 255, 255)  # white
-        elif level == MessageManager.Level.WARNING:
-            return (80, 255, 255)  # yellow
-        else:
-            return (80, 80, 255)  # red
-
-    def render(self, image, area):
-        start = area[0] + area[2] - self.padding
-
-        with self.messages_lock:
-            for level, line in self.messages:
-                size, _ = cv2.getTextSize(line, self.font, self.font_size, 1)
-                location = (area[1] + self.padding, start)
-                cv2.putText(
-                    image,
-                    line,
-                    location,
-                    fontFace=self.font,
-                    fontScale=self.font_size,
-                    color=self._message_color(level),
-                    thickness=1,
-                    lineType=cv2.LINE_AA,
-                )
-                start -= size[1] + self.padding
+    def pose(self, detection):
+        pass
 
 
 class ArUcoTarget:
@@ -117,14 +54,6 @@ class ArUcoTarget:
 
         self.allowed_ids = allowed_ids
         self.marker_size = marker_size
-
-        # TODO
-        # self.refinement_window_interp = scipy.interpolate.interp1d(
-        #     [0.0, 0.01, 0.025, 0.03, 0.06],
-        #     [0.0, 15.0, 23.0, 20.0, 40.0],
-        #     kind="linear",
-        #     fill_value="extrapolate",
-        # )
 
         self.refinement_window_interp = interp1d(
             [0.0, 100.0, 150.0, 200.0],
@@ -146,8 +75,6 @@ class ArUcoTarget:
     def _refine_detection(self, image, target):
         contour_size = math.sqrt(cv2.contourArea(target))
         window_size = int(self.refinement_window_interp(contour_size))
-        # TODO
-        # print(contour_size, window_size)
 
         refined_parameters = cv2.aruco.DetectorParameters_create()
         refined_parameters.adaptiveThreshWinSizeMin = (
@@ -184,7 +111,7 @@ class VisionTracker:
         message_manager,
         camera: Camera,
         parameters=Parameters(),
-        window_title="Vision tracking",
+        window_title="Vision tracking"
     ):
         self.target_type = target_type
         self.message_manager = message_manager
@@ -280,8 +207,6 @@ class VisionTracker:
                     continue
 
                 self._process_targets(frame)
-                # TODO
-                # self._run_target_pose_acquisition(frame)
 
                 if self._should_run_pose_acquisition:
                     self._run_target_pose_acquisition(frame)
@@ -320,39 +245,43 @@ class VisionTracker:
         return self.camera.get_camera_frame()
 
     def _run_target_pose_acquisition(self, frame):
-        if self.target is not None:
-            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-                np.array([self.target]),
-                self.target_type.marker_size,
-                self.camera.camera_matrix,
-                self.camera.no_distortion,
-            )
-            rotation_, _ = cv2.Rodrigues(rvecs[0])
-            cv2.drawFrameAxes(
-                frame,
-                self.camera.camera_matrix,
-                self.camera.no_distortion,
-                rvecs[0],
-                tvecs[0],
-                0.5 * self.target_type.marker_size,
-            )
-            self.samples.append((rvecs[0], tvecs[0, 0]))
+        if self.target is None:
+            return
 
-            if len(self.samples) >= self.parameters.pose_samples:
-                self.samples = self.samples[1:]
-                positions = np.array([t for r, t in self.samples])
-                rvecs = np.array([r for r, t in self.samples])
-                position = np.mean(positions, axis=0)
-                rvec = np.mean(rvecs, axis=0)
-                rotation, _ = cv2.Rodrigues(rvec)
-                position_std = np.max(np.std(positions, axis=0))
-                rotation_std = np.max(np.std(rvecs, axis=0))
+        rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
+            np.array([self.target]),
+            self.target_type.marker_size,
+            self.camera.camera_matrix,
+            self.camera.no_distortion,
+        )
+        rotation_, _ = cv2.Rodrigues(rvecs[0])
+        cv2.drawFrameAxes(
+            frame,
+            self.camera.camera_matrix,
+            self.camera.no_distortion,
+            rvecs[0],
+            tvecs[0],
+            0.5 * self.target_type.marker_size,
+        )
+        self.samples.append((rvecs[0], tvecs[0, 0]))
 
-                if position_std < 5e-3 and rotation_std < 5e-2:
-                    self._acquired_pose = (rotation, position)
-                    self.high_variance = False
-                else:
-                    self.high_variance = True
+        if len(self.samples) < self.parameters.pose_samples:
+            continue
+
+        self.samples = self.samples[1:]
+        positions = np.array([t for r, t in self.samples])
+        rvecs = np.array([r for r, t in self.samples])
+        position = np.mean(positions, axis=0)
+        rvec = np.mean(rvecs, axis=0)
+        rotation, _ = cv2.Rodrigues(rvec)
+        position_std = np.max(np.std(positions, axis=0))
+        rotation_std = np.max(np.std(rvecs, axis=0))
+
+        if position_std < 5e-3 and rotation_std < 5e-2:
+            self._acquired_pose = (rotation, position)
+            self.high_variance = False
+        else:
+            self.high_variance = True
 
     def set_axes(self, pose):
         self.axes = pose

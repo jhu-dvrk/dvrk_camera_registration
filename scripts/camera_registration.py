@@ -26,7 +26,7 @@ from scipy.spatial.transform import Rotation
 
 import crtk
 from dvrk_camera_registration import Camera
-from dvrk_camera_registration import ARM
+from dvrk_camera_registration import Arm
 from dvrk_camera_registration import convex_hull
 from dvrk_camera_registration import vision_tracking
 
@@ -41,9 +41,9 @@ class CameraRegistrationApplication:
         self.marker_size = marker_size
         self.expected_interval = expected_interval
         self.psm_name = psm_name
-        self.psm = ARM(ral, arm_name=psm_name, expected_interval=expected_interval)
+        self.psm = Arm(ral, arm_name=psm_name, expected_interval=expected_interval)
         if ecm_name is not None:
-            self.ecm = ARM(ral, arm_name=ecm_name, expected_interval=expected_interval)
+            self.ecm = Arm(ral, arm_name=ecm_name, expected_interval=expected_interval)
         else:
             self.ecm = None
 

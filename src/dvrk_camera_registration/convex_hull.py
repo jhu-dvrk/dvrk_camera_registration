@@ -71,38 +71,3 @@ def centroid(hull):
         centroid += volume * np.mean(points, axis=0)
 
     return centroid / total_volume
-
-
-def display_hull(hull):
-    def plot_hull(ax, hull):
-        hull, _ = hull
-        ax.plot(
-            (180.0 / math.pi) * hull.points.T[0],
-            (180.0 / math.pi) * hull.points.T[1],
-            1000.0 * hull.points.T[2],
-            "ko",
-        )
-
-        for s in hull.simplices:
-            s = np.append(s, s[0])  # close cycle
-            ax.plot(
-                (180.0 / math.pi) * hull.points[s, 0],
-                (180.0 / math.pi) * hull.points[s, 1],
-                1000.0 * hull.points[s, 2],
-                "r-",
-            )
-
-    fig = plt.figure("Safe ROM Display")
-    ax = fig.add_subplot(projection="3d")
-
-    limits = np.array([getattr(ax, f"get_{axis}lim")() for axis in "xyz"])
-    ax.auto_scale_xyz(*[[np.min(limits), np.max(limits)]] * 3)
-
-    plot_hull(ax, hull)
-
-    ax.set_xlabel("x (degrees)")
-    ax.set_ylabel("y (degrees)")
-    ax.set_zlabel("z (mm)")
-
-    fig.suptitle("Safe Range of Motion")
-    plt.show()
