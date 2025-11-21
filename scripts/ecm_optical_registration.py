@@ -59,7 +59,7 @@ class ECMOpticalRegistration:
 
     def collect_poses(self):
         target_poses = []
-        camera_poses = []
+        robot_poses = []
 
         self.done = False
         self.enter = False
@@ -67,32 +67,24 @@ class ECMOpticalRegistration:
             if self.enter:
                 self.enter = False
                 current_pose, _ = self.psm.measured_jp()
-                poses.append(current_pose)
-                self.messages.info(f'Total poses collected: {len(poses)}')
+
+                local_m_cp, _ = self.ecm.local.measured_cp()
+                R = numpy.float64(Rotation.from_quat(pose.M.GetQuaternion()).as_matrix())
+                t = numpy.array([pose.p[0], pose.p[1], pose.p[2]], dtype=numpy.float64)
+
+                robot_poses.append((R, t))
+
+                ok, target_pose = self.tracker.acquire_pose(timeout=4.0)
+                if not ok:
+                    continue
+
+                robot_poses.append(current_pose)
+                target_poses.append(target_pose)
+                self.messages.info(f'Total poses collected: {len(robot_poses)}')
 
             time.sleep(self.expected_interval)
 
         return poses
-
-    def measure_pose(joint_pose):
-        nonlocal target_poses
-        nonlocal robot_poses
-
-        ok, target_pose = self.tracker.acquire_pose(timeout=4.0)
-        if not ok:
-            return False
-
-        target_poses.append(target_pose)
-
-        local_m_cp, _ = self.psm.local.measured_cp()
-        pose = local_m_cp.Inverse()
-        rotation_quaternion = Rotation.from_quat(pose.M.GetQuaternion())
-        rotation = numpy.float64(rotation_quaternion.as_matrix())
-        translation = numpy.array([pose.p[0], pose.p[1], pose.p[2]], dtype=numpy.float64)
-
-        robot_poses.append((rotation, numpy.array(translation)))
-
-        return True
 
     def compute_registration(self, robot_poses, target_poses):
         error, transform = self.camera.calibrate_pose(
@@ -143,7 +135,6 @@ class ECMOpticalRegistration:
         print('Connections with dVRK checked')
 
         try:
-            cv2.setNumThreads(2)
             self.ok = True
 
             self._init_tracking()
@@ -165,7 +156,7 @@ class ECMOpticalRegistration:
                 pose = self.measure_pose()
                 time.sleep(self.expected_interval)
 
-            data = None
+            data = self.collect_poses()
 
             if len(data[0]) <= 10:
                 self.messages.error('Not enough pose data, cannot compute registration')

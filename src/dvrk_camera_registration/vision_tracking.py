@@ -32,6 +32,42 @@ class Target:
 
 
 class ChArUcoTarget(Target):
+    def __init__(self, marker_size):
+        self.marker_size = marker_size
+        self.aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_100)
+        self.board = cv2.aruco.CharucoBoard.create(13, 14, marker_size, 0.75 * marker_size, self.aruco_dict),
+
+    def find(self, image):
+        corners, ids, _ = cv2.aruco.detectMarkers(
+            image, self.aruco_dict, parameters=parameters
+        )
+
+        ok, corners, ids = cv2.aruco.interpolateCornersCharuco(
+            corners, ids,
+            image, self.board
+        )
+        if not ok:
+            return None
+        cv.aruco.drawDetectedCornersCharuco(image, corners, [], (255, 0, 0))
+        return (corners, ids)
+
+    def pose(self, detection, camera):
+        charuco_corners, charuco_ids = detection
+        ok, rvec, tvec = cv2.aruco.estimatePoseCharucoBoard(
+            charuco_corners,
+            charuco_ids,
+            self.board,
+            camera.camera_matrix,
+            camera.distortion_coeffs
+        )
+
+        if not ok:
+            return None
+
+        return rvec, tvec
+
+
+class AsymCirclesTarget(Target):
     def __init__(self):
         pass
 
@@ -98,6 +134,16 @@ class ArUcoTarget:
             return self._refine_detection(image, target)
         else:
             return None
+
+    def pose(self, target, camera):
+        rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
+            np.array([target]),
+            self.marker_size,
+            camera.camera_matrix,
+            camera.no_distortion,
+        )
+
+        return rvecs[0], tvecs[0, 0]
 
 
 class VisionTracker:
@@ -210,15 +256,6 @@ class VisionTracker:
 
                 if self._should_run_pose_acquisition:
                     self._run_target_pose_acquisition(frame)
-                elif hasattr(self, "axes"):
-                    cv2.drawFrameAxes(
-                        frame,
-                        self.camera.camera_matrix,
-                        self.camera.no_distortion,
-                        self.axes[0],
-                        self.axes[1],
-                        0.01,
-                    )
 
                 self.draw_points(frame)
                 cv2.imshow(self.window_title, frame)
@@ -248,13 +285,12 @@ class VisionTracker:
         if self.target is None:
             return
 
-        rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-            np.array([self.target]),
-            self.target_type.marker_size,
-            self.camera.camera_matrix,
-            self.camera.no_distortion,
-        )
-        rotation_, _ = cv2.Rodrigues(rvecs[0])
+        pose = self.target_type.pose(self.target)
+        if pose is None:
+            return
+
+        r, t = pose
+        rotation_, _ = cv2.Rodrigues(r)
         cv2.drawFrameAxes(
             frame,
             self.camera.camera_matrix,
@@ -263,7 +299,8 @@ class VisionTracker:
             tvecs[0],
             0.5 * self.target_type.marker_size,
         )
-        self.samples.append((rvecs[0], tvecs[0, 0]))
+
+        self.samples.append((r, t))
 
         if len(self.samples) < self.parameters.pose_samples:
             continue
@@ -282,9 +319,6 @@ class VisionTracker:
             self.high_variance = False
         else:
             self.high_variance = True
-
-    def set_axes(self, pose):
-        self.axes = pose
 
     # Get pose of target
     def acquire_pose(self, timeout=None):

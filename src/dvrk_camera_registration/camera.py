@@ -101,17 +101,17 @@ class Camera:
 
         return ok, reprojection_error, rotation, translation
 
-    def calibrate_pose(self, robot_poses, target_poses):
-        robot_poses_r = np.array([p[0] for p in robot_poses], dtype=np.float64)
-        robot_poses_t = np.array([p[1] for p in robot_poses], dtype=np.float64)
-        target_poses_r = np.array([p[0] for p in target_poses], dtype=np.float64)
-        target_poses_t = np.array([p[1] for p in target_poses], dtype=np.float64)
+    def calibrate_pose(self, T_A2B, T_C2D):
+        T_A2B_r = np.array([p[0] for p in T_A2B], dtype=np.float64)
+        T_A2B_t = np.array([p[1] for p in T_A2B], dtype=np.float64)
+        T_C2D_r = np.array([p[0] for p in T_C2D], dtype=np.float64)
+        T_C2D_t = np.array([p[1] for p in T_C2D], dtype=np.float64)
 
         rotation, translation = cv2.calibrateHandEye(
-            robot_poses_r,
-            robot_poses_t,
-            target_poses_r,
-            target_poses_t,
+            T_A2B_r,
+            T_A2B_t,
+            T_C2D_r,
+            T_C2D_t,
             method=cv2.CALIB_HAND_EYE_HORAUD,
         )
 
@@ -121,17 +121,17 @@ class Camera:
             X[0:3, 3] = translation.reshape((3,))
             return X
 
-        robot_transforms = [to_homogenous(r, t) for r, t in robot_poses]
-        target_transforms = [to_homogenous(r, t) for r, t in target_poses]
-        camera_transform = to_homogenous(rotation, translation)
+        T_A2B = [to_homogenous(r, t) for r, t in T_A2B]
+        T_C2D = [to_homogenous(r, t) for r, t in T_C2D]
+        D2A = to_homogenous(rotation, translation)
 
-        transforms = []
-        for r, t in zip(robot_transforms, target_transforms):
-            a = np.matmul(np.matmul(r, camera_transform), t)
-            transforms.append(np.linalg.norm(a, ord="fro"))
+        constant_transforms = []
+        for A2B, C2D in zip(T_A2B, T_C2D):
+            T_C2B = T_A2B @ D2A @ T_C2D
+            constant_transforms.append(np.linalg.norm(T_C2B, ord="fro"))
 
-        transforms = np.array(transforms)
+        constant_transforms = np.array(constant_transforms)
 
-        error = np.std(transforms - np.mean(transforms))
+        error = np.std(constant_transforms - np.mean(constant_transforms))
 
         return error, rotation, translation

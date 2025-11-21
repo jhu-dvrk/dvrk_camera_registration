@@ -155,10 +155,6 @@ class CameraRegistrationApplication:
             else:
                 break
 
-        # self.messages.info(
-        #    'Range of motion displayed in plot, close plot window to continue'
-        # )
-        # convex_hull.display_hull(hull)
         return self.ok, hull
 
 
