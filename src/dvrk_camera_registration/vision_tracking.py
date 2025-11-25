@@ -19,12 +19,11 @@ import queue
 import scipy
 from dvrk_camera_registration import Camera, MessageManager
 import time
-from enum import Enum
 import collections
 from scipy.interpolate import interp1d
 
 class Target:
-    def find(self, image: cv2.Mat):
+    def find(self, image):
         raise NotImplementedError()
 
     def pose(self, detection):
@@ -35,20 +34,25 @@ class ChArUcoTarget(Target):
     def __init__(self, marker_size):
         self.marker_size = marker_size
         self.aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_100)
-        self.board = cv2.aruco.CharucoBoard.create(13, 14, marker_size, 0.75 * marker_size, self.aruco_dict),
+        self.board = cv2.aruco.CharucoBoard_create(14, 13, marker_size, 0.75 * marker_size, self.aruco_dict)
 
     def find(self, image):
         corners, ids, _ = cv2.aruco.detectMarkers(
-            image, self.aruco_dict, parameters=parameters
+            image, self.aruco_dict
         )
 
+        if ids is None or len(ids) == 0:
+            return None
+
+        cv2.aruco.drawDetectedMarkers(image, corners, ids)
         ok, corners, ids = cv2.aruco.interpolateCornersCharuco(
             corners, ids,
             image, self.board
         )
         if not ok:
             return None
-        cv.aruco.drawDetectedCornersCharuco(image, corners, [], (255, 0, 0))
+        cv2.aruco.drawDetectedCornersCharuco(image, corners, ids)
+
         return (corners, ids)
 
     def pose(self, detection, camera):
@@ -58,7 +62,9 @@ class ChArUcoTarget(Target):
             charuco_ids,
             self.board,
             camera.camera_matrix,
-            camera.distortion_coeffs
+            camera.no_distortion,
+            np.array([0.0, 0.0, 0.0], dtype=np.float64),
+            np.array([0.0, 0.0, 0.0], dtype=np.float64)
         )
 
         if not ok:
@@ -68,14 +74,42 @@ class ChArUcoTarget(Target):
 
 
 class AsymCirclesTarget(Target):
-    def __init__(self):
-        pass
+    def __init__(self, size, pattern=(3, 5)):
+        self.size = size
+        self.pattern = pattern
+
+        self.object_points = []
+        for i in range(pattern[1]):
+            for j in range(pattern[0]):
+                self.object_points.append([ (2 * j + i % 2) * self.size, i * self.size, 0.0])
+
+        self.object_points = np.array(self.object_points, dtype=np.float64)
 
     def find(self, image):
-        pass
+        blobs = self.blob_detector.detect(image)
+        for blob in blobs:
+            point = (int(blob.pt[0]), int(blob.pt[1]))
+            cv2.circle(image, point, 10, (255, 255, 0), 2)
 
-    def pose(self, detection):
-        pass
+        # ok, centers = cv2.findCirclesGrid(image, self.pattern, flags=cv2.CALIB_CB_ASYMMETRIC_GRID, blobDetector=self.blob_detector)
+        ok, centers = cv2.findCirclesGrid(image, self.pattern, flags=cv2.CALIB_CB_ASYMMETRIC_GRID)
+        if not ok or len(centers) != len(self.object_points):
+            return None
+
+        cv2.drawChessboardCorners(image, self.pattern, centers, True)
+        return centers
+
+    def pose(self, detection, camera):
+        ok, rvec, tvec = cv2.solvePnP(
+            self.object_points,
+            detection,
+            camera.camera_matrix,
+            camera.no_distortion
+        )
+        if not ok:
+            return None
+
+        return rvec, tvec
 
 
 class ArUcoTarget:
@@ -172,7 +206,7 @@ class VisionTracker:
         self.target = None
 
     def _create_window(self):
-        cv2.namedWindow(self.window_title)
+        cv2.namedWindow(self.window_title, cv2.WINDOW_NORMAL)
 
     def _close(self):
         self.camera.set_callback(None)
@@ -180,9 +214,6 @@ class VisionTracker:
 
     def _process_targets(self, image):
         self.target = self.target_type.find(image)
-
-        if self.target is not None:
-            cv2.drawContours(image, [np.int0(self.target)], -1, (255, 0, 255), 3)
 
     def display_point(self, point3d, color, size=3):
         point2d = self.camera.project_points(
@@ -206,8 +237,7 @@ class VisionTracker:
 
     def _gui_layout(self, image):
         image_size = (image.shape[1], image.shape[0])
-        window_rect = cv2.getWindowImageRect(self.window_title)
-        window_size = (window_rect[2], window_rect[3])
+        window_size = [ 960, 720 ]
 
         # Calculate area available for message output, and image resizing factor
         message_output_height = int(0.25 * window_size[1])
@@ -246,7 +276,7 @@ class VisionTracker:
 
             while not self.should_stop:
                 try:
-                    frame = self.image_queue.get(block=True, timeout=1)
+                    frame = self.image_queue.get(block=True, timeout=2)
                 except queue.Empty:
                     print("\nNo camera image available, waited for 1 second\n")
                     self._quit_handler()
@@ -254,11 +284,12 @@ class VisionTracker:
 
                 self._process_targets(frame)
 
-                if self._should_run_pose_acquisition:
-                    self._run_target_pose_acquisition(frame)
+                #if self._should_run_pose_acquisition:
+                self._run_target_pose_acquisition(frame)
 
                 self.draw_points(frame)
-                cv2.imshow(self.window_title, frame)
+                display = self._gui_layout(frame)
+                cv2.imshow(self.window_title, display)
                 key = cv2.waitKey(200) # 20ms, run at 50Hz max
                 key = key & 0xFF  # Upper bits are modifiers (control, alt, etc.)
                 escape = 27
@@ -285,7 +316,7 @@ class VisionTracker:
         if self.target is None:
             return
 
-        pose = self.target_type.pose(self.target)
+        pose = self.target_type.pose(self.target, self.camera)
         if pose is None:
             return
 
@@ -295,15 +326,15 @@ class VisionTracker:
             frame,
             self.camera.camera_matrix,
             self.camera.no_distortion,
-            rvecs[0],
-            tvecs[0],
-            0.5 * self.target_type.marker_size,
+            r,
+            t,
+            0.05,
         )
 
         self.samples.append((r, t))
 
         if len(self.samples) < self.parameters.pose_samples:
-            continue
+            return
 
         self.samples = self.samples[1:]
         positions = np.array([t for r, t in self.samples])

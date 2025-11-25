@@ -13,10 +13,11 @@
 
 import collections
 import cv2
+import enum
 import threading
 
 class MessageManager:
-    class Level(Enum):
+    class Level(enum.Enum):
         INFO = 0
         WARNING = 1
         ERROR = 2
@@ -25,7 +26,7 @@ class MessageManager:
         self.messages = collections.deque(maxlen=buffer_size)
         self.messages_lock = threading.Lock()
 
-        self.padding = 15
+        self.padding = 10
         self.font_size = font_size
         self.font = cv2.FONT_HERSHEY_DUPLEX
 

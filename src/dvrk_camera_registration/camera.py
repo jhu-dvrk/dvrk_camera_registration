@@ -127,11 +127,11 @@ class Camera:
 
         constant_transforms = []
         for A2B, C2D in zip(T_A2B, T_C2D):
-            T_C2B = T_A2B @ D2A @ T_C2D
-            constant_transforms.append(np.linalg.norm(T_C2B, ord="fro"))
+            C2B = A2B @ D2A @ C2D
+            constant_transforms.append(np.linalg.norm(C2B, ord="fro"))
 
         constant_transforms = np.array(constant_transforms)
 
         error = np.std(constant_transforms - np.mean(constant_transforms))
 
-        return error, rotation, translation
+        return error, D2A

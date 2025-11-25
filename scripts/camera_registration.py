@@ -32,18 +32,17 @@ from dvrk_camera_registration import vision_tracking
 
 
 class CameraRegistrationApplication:
-    def __init__(self, ral, collection_mode, backup, psm_name, ecm_name, marker_size, expected_interval, camera, replay_file):
+    def __init__(self, ral, collection_mode, backup, psm_name, ecm_name, marker_size, camera, replay_file):
         self.ral = ral
         self.collection_mode = collection_mode
         self.replay_file = replay_file
         self.backup = backup
         self.camera = camera
         self.marker_size = marker_size
-        self.expected_interval = expected_interval
         self.psm_name = psm_name
-        self.psm = Arm(ral, arm_name=psm_name, expected_interval=expected_interval)
+        self.psm = Arm(ral, arm_name=psm_name)
         if ecm_name is not None:
-            self.ecm = Arm(ral, arm_name=ecm_name, expected_interval=expected_interval)
+            self.ecm = Arm(ral, arm_name=ecm_name)
         else:
             self.ecm = None
 
@@ -80,7 +79,7 @@ class CameraRegistrationApplication:
                 poses.append(current_pose)
                 self.messages.info(f'Total poses collected: {len(poses)}')
 
-            time.sleep(self.expected_interval)
+            time.sleep(0.05)
 
         return poses
 
@@ -112,7 +111,7 @@ class CameraRegistrationApplication:
                     poses.append(pose)
                     self.messages.info(f'Total poses collected: {len(poses)}')
 
-            time.sleep(self.expected_interval)
+            time.sleep(0.05)
 
         return poses
 
@@ -138,7 +137,7 @@ class CameraRegistrationApplication:
                 if len(hull_points) == 0 or distance(position, hull_points[-1]) > 0.005:
                     hull_points.append(position)
 
-                time.sleep(self.expected_interval)
+                time.sleep(0.05)
 
             return hull_points
 
@@ -520,7 +519,7 @@ class CameraRegistrationApplication:
                 self.messages.info('Loosen and rotate the aruco along the instrument shaft so it faces the camera\nPress "Enter" when done\n')
                 self.enter = False
                 while self.ok and not self.enter:
-                    time.sleep(self.expected_interval)
+                    time.sleep(0.05)
 
             data = None
 
@@ -606,13 +605,6 @@ def main():
         help='ArUco marker side length - including black border - in same units as camera calibration',
     )
     parser.add_argument(
-        '-i',
-        '--interval',
-        type=float,
-        default=0.1,
-        help='expected interval in seconds between messages sent by the device',
-    )
-    parser.add_argument(
         '-c',
         '--camera-namespace',
         type=str,
@@ -662,7 +654,6 @@ def main():
         psm_name = args.psm_name,
         ecm_name = args.ecm_name,
         marker_size = args.marker_size,
-        expected_interval = args.interval,
         camera = camera,
         replay_file = args.replay_file
     )

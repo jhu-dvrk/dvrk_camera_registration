@@ -245,7 +245,7 @@ def main():
         camera_image_topic = args.camera_namespace + '/image_rect'
     camera_info_topic = args.camera_namespace + '/camera_info'
   
-    arm_handle = dvrk_camera_registration.Arm(ral, arm_name=args.psm_name, expected_interval=0.1)
+    arm_handle = dvrk_camera_registration.Arm(ral, arm_name=args.psm_name)
     ral.spin()
     ral.check_connections()
     cv2.setNumThreads(2)

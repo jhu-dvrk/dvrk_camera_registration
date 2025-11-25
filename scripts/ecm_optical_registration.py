@@ -36,20 +36,20 @@ class ECMOpticalRegistration:
         self.ral = ral
         self.camera = camera
         self.marker_size = marker_size
-        self.ecm = Arm(ral, arm_name=ecm_name, expected_interval=expected_interval)
+        self.ecm = Arm(ral, arm_name=ecm_name)
 
     def setup(self):
-        self.messages.info("Enabling {}...".format(self.psm.name))
-        if not self.psm.enable(5):
+        self.messages.info("Enabling {}...".format(self.ecm.name))
+        if not self.ecm.enable(5):
             self.messages.error(
-                "Failed to enable {} within 10 seconds".format(self.psm.name)
+                "Failed to enable {} within 10 seconds".format(self.ecm.name)
             )
             return False
 
-        self.messages.info("Homing {}...".format(self.psm.name))
-        if not self.psm.home(10):
+        self.messages.info("Homing {}...".format(self.ecm.name))
+        if not self.ecm.home(10):
             self.messages.error(
-                "Failed to home {} within 10 seconds".format(self.psm.name)
+                "Failed to home {} within 10 seconds".format(self.ecm.name)
             )
             return False
 
@@ -64,43 +64,44 @@ class ECMOpticalRegistration:
         self.done = False
         self.enter = False
         while not self.done:
+            if not self.ok:
+                return None
+
             if self.enter:
                 self.enter = False
-                current_pose, _ = self.psm.measured_jp()
-
                 local_m_cp, _ = self.ecm.local.measured_cp()
-                R = numpy.float64(Rotation.from_quat(pose.M.GetQuaternion()).as_matrix())
-                t = numpy.array([pose.p[0], pose.p[1], pose.p[2]], dtype=numpy.float64)
-
-                robot_poses.append((R, t))
+                R = numpy.float64(Rotation.from_quat(local_m_cp.M.GetQuaternion()).as_matrix())
+                t = numpy.array([local_m_cp.p[0], local_m_cp.p[1], local_m_cp.p[2]], dtype=numpy.float64)
 
                 ok, target_pose = self.tracker.acquire_pose(timeout=4.0)
                 if not ok:
                     continue
 
-                robot_poses.append(current_pose)
+                robot_poses.append((R, t))
                 target_poses.append(target_pose)
                 self.messages.info(f'Total poses collected: {len(robot_poses)}')
 
-            time.sleep(self.expected_interval)
+            time.sleep(0.05)
 
-        return poses
+        return robot_poses, target_poses
 
     def compute_registration(self, robot_poses, target_poses):
-        error, transform = self.camera.calibrate_pose(
-            robot_poses, target_poses
+        robot_to_base = robot_poses
+        target_to_camera = target_poses
+        error, camera_to_robot = self.camera.calibrate_pose(
+            robot_to_base, target_to_camera
         )
 
-        distance = numpy.linalg.norm(transform[0:3, 3])
+        distance = numpy.linalg.norm(camera_to_robot[0:3, 3])
         self.messages.info(
-            'Measured distance from robot tip frame to camera optical origin: {:.3f} m\n'.format(distance)
+            'Measured distance from robot tip frame to camera optical origin: {:.1f} mm\n'.format(1000.0*distance)
         )
 
-        return self.ok, transform
+        return self.ok, camera_to_robot
 
     def save_registration(self, transform, file_name):
         with open(file_name, 'w') as f:
-            f.write(transform.tolist())
+            f.write(str(transform.tolist()))
             f.write('\n')
 
         self.messages.info('Hand-eye calibration saved to {}'.format(file_name))
@@ -120,14 +121,14 @@ class ECMOpticalRegistration:
         self.done = True
 
     def _init_tracking(self):
-        target_type = vision_tracking.ArUcoTarget(
-            self.marker_size, cv2.aruco.DICT_4X4_50, [0]
-        )
+        #target_type = vision_tracking.ChArUcoTarget(self.marker_size)
+        target_type = vision_tracking.AsymCirclesTarget(self.marker_size)
         parameters = vision_tracking.VisionTracker.Parameters(4)
         self.messages = vision_tracking.MessageManager()
         self.tracker = vision_tracking.VisionTracker(
             target_type, self.messages, self.camera, parameters
         )
+        time.sleep(2.0)
 
     def run(self):
         print('Checking topics')
@@ -152,13 +153,12 @@ class ECMOpticalRegistration:
 
             self.enter = False
             self.messages.info('Press "Enter" to add the current pose, or type "d" to stop collection')
-            while self.ok and not self.done:
-                pose = self.measure_pose()
-                time.sleep(self.expected_interval)
 
             data = self.collect_poses()
+            if data is None:
+                return
 
-            if len(data[0]) <= 10:
+            if len(data[0]) < 10:
                 self.messages.error('Not enough pose data, cannot compute registration')
                 self.messages.error(
                     'Please try again, with more range of motion within camera view'

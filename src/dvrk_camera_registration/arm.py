@@ -19,22 +19,22 @@ import geometry_msgs.msg
 
 class Arm:
     class Local:
-        def __init__(self, ral, expected_interval, operating_state_instance):
-            self.crtk_utils = crtk.utils(self, ral, expected_interval, operating_state_instance)
+        def __init__(self, ral, operating_state):
+            self.crtk_utils = crtk.utils(self, ral, operating_state_instance=operating_state)
             self.crtk_utils.add_measured_cp()
             self.crtk_utils.add_forward_kinematics()
 
     # initialize the robot
-    def __init__(self, ral, arm_name, ros_namespace="", expected_interval=0.01):
+    def __init__(self, ral, arm_name, ros_namespace=""):
         self.ral = ral.create_child(arm_name)
-        self.crtk_utils = crtk.utils(self, self.ral, expected_interval)
+        self.crtk_utils = crtk.utils(self, self.ral)
         self.crtk_utils.add_operating_state()
         self.crtk_utils.add_measured_js()
         self.crtk_utils.add_measured_cp()
         self.crtk_utils.add_move_jp()
 
         self.namespace = ros_namespace
-        self.local = Arm.Local(self.ral.create_child("local"), expected_interval, operating_state_instance=self)
+        self.local = Arm.Local(self.ral.create_child("local"), operating_state=self)
 
         base_frame_topic = "/{}/set_base_frame".format(self.namespace)
         self._set_base_frame_pub = self.ral.publisher(
