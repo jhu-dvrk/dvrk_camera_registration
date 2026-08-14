@@ -1,5 +1,5 @@
-cmake_minimum_required (VERSION 3.10)
-project (dvrk_camera_registration VERSION 1.0.0)
+cmake_minimum_required (VERSION 3.16)
+project (dvrk_camera_registration VERSION 1.1.0)
 
 # ROS 1
 find_package (

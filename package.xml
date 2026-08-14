@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>dvrk_camera_registration</name>
-  <version>1.0.0</version>
+  <version>1.1.0</version>
   <description>Camera to dVRK PSM registration. Can be used for teleoperation or better than SUJ PSM to camera estimation.</description>
   <maintainer email="bburkha4@jhu.edu">Brendan Burkhart</maintainer>
   <maintainer email="anton.deguet@jhu.edu">Anton Deguet</maintainer>
