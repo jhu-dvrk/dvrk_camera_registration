@@ -1,8 +1,8 @@
 Change log
 ==========
 
-1.1.0 (TBD)
-===========
+1.1.0 (2026-08-22)
+==================
 
 * Added manual and automatic camera-registration pose collection, with replay
   support for existing pose sets.
